@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Message } from '../types'
-import { renderMarkdown, hasCodeBlock } from '../utils/Markdown'
+import { renderMarkdown, hasCodeBlock } from '@/utils/markdown'
 import CodeBlock from './CodeBlock.vue'
 
 // 组件属性

@@ -1,15 +1,3 @@
-<template>
-  <div class="code-block">
-    <div class="code-header">
-      <span class="language">{{ language }}</span>
-      <button class="copy-btn" @click="copyCode" :class="{ copied }">
-        {{ copied ? '已复制' : '复制' }}
-      </button>
-    </div>
-    <pre><code :class="language" v-html="highlightedCode"></code></pre>
-  </div>
-</template>
-
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import hljs from 'highlight.js'
@@ -51,6 +39,18 @@ const copyCode = () => {
     })
 }
 </script>
+
+<template>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="language">{{ language }}</span>
+      <button class="copy-btn" @click="copyCode" :class="{ copied }">
+        {{ copied ? '已复制' : '复制' }}
+      </button>
+    </div>
+    <pre><code :class="language" v-html="highlightedCode"></code></pre>
+  </div>
+</template>
 
 <style scoped>
 .code-block {

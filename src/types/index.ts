@@ -7,9 +7,10 @@ export interface Message {
   role: MessageRole // 消息角色
   content: string // 消息内容
   timestamp: number // 时间戳
+  imageUrl?: string // 图片
 }
 
-// 新增一个专门用于 API 请求的类型
+// 专门用于 API 请求的类型
 export interface ApiMessage {
   role: 'user' | 'assistant'
   content: string

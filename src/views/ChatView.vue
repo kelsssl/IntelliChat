@@ -65,9 +65,19 @@ const sendMessage = async () => {
   const content = userInput.value.trim()
   if (!content || isSending.value) return
 
+  const isFirstUserMessage = currentChat.value.messages.length === 0
+  const chatId = currentChat.value.id // 先把 ID 存起来
+
   chatStore.addUserMessage(content)
   userInput.value = ''
   chatStore.isSending = true
+
+  // 如果是第一条用户消息，立即用这条消息的内容更新标题
+  if (isFirstUserMessage) {
+    // 截取前 20 个字符作为标题，避免过长
+    const newTitle = content.substring(0, 20)
+    chatStore.renameChat(chatId, newTitle)
+  }
 
   try {
     const assistantMessage = chatStore.addAssistantMessage()

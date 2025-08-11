@@ -1,119 +1,198 @@
-<!-- App.vue 或主布局文件 -->
-<script setup lang="ts">
-import LeftSidebar from './components/LeftSidebar.vue'
-import ChatList from './components/ChatList.vue'
-</script>
-
 <template>
-  <div id="app-layout">
-    <LeftSidebar />
-    <ChatList />
-    <div class="main-content">
-      <router-view />
+  <div id="app">
+    <div class="main-layout">
+      <!-- 左侧功能栏 -->
+      <div :class="['sidebar', { 'sidebar-hidden': !sidebarOpen }]">
+        <ChatList v-if="sidebarOpen" @toggle-sidebar="toggleSidebar" />
+      </div>
+
+      <!-- 右侧内容区域 -->
+      <div class="main-content">
+        <!-- 顶部工具栏 -->
+        <header class="top-header">
+          <div class="header-left">
+            <button
+              v-if="!sidebarOpen"
+              @click="toggleSidebar"
+              class="menu-toggle-btn"
+              title="显示侧边栏"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
+              </svg>
+            </button>
+            <!-- 只在对话页面显示标题 -->
+            <h1 v-if="currentChatTitle" class="current-chat-title">
+              {{ currentChatTitle }}
+            </h1>
+          </div>
+        </header>
+
+        <!-- 路由视图 - 保留您的路由系统 -->
+        <main class="content-area">
+          <router-view />
+        </main>
+      </div>
     </div>
   </div>
 </template>
 
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { useChatStore } from './stores/chat'
+import ChatList from './components/ChatList.vue'
+
+// 保留您的所有现有配置
+const route = useRoute()
+const chatStore = useChatStore()
+const { currentChat } = storeToRefs(chatStore)
+
+// 侧边栏状态
+const sidebarOpen = ref(true)
+
+const toggleSidebar = () => {
+  sidebarOpen.value = !sidebarOpen.value
+}
+
+// 当前对话标题
+const currentChatTitle = computed(() => {
+  // 只在对话页面显示标题
+  if (route.name === 'chat' && currentChat.value) {
+    return currentChat.value.title || '新对话'
+  }
+  return null
+})
+</script>
+
 <style>
-/* 重置所有元素的默认样式 */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/* --- 1. 全局样式重置与盒模型统一 --- */
+* {
   margin: 0;
   padding: 0;
+  box-sizing: border-box; /* 关键！确保 padding 和 border 不会增加元素尺寸 */
 }
 
-/* 确保 html 和 body 占满全屏且无滚动条 */
-html {
-  height: 100%;
-  overflow: hidden; /* 防止整体页面滚动 */
-}
-
+html,
 body {
   height: 100%;
-  margin: 0;
-  padding: 0;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow: hidden; /* 防止 body 滚动 */
+  overflow: hidden; /* 防止 body 产生滚动条 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* Vue 根元素 */
+/* --- 2. 根应用容器布局 --- */
 #app {
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  display: flex; /* 让 #app 自身成为 flex 容器 */
 }
 
-/* 主布局容器 - 关键修复 */
-#app-layout {
+/* --- 3. 主布局容器 (不再需要 100vh) --- */
+.main-layout {
   display: flex;
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden; /* 防止水平滚动 */
-  position: fixed; /* 固定定位，确保不会移动 */
-  top: 0;
-  left: 0;
+  width: 100%; /* 占满 #app 的宽度 */
+  height: 100%; /* 占满 #app 的高度 */
+  background-color: #f9fafb;
 }
 
-/* 左侧边栏 */
-.left-sidebar {
-  width: 80px; /* 使用固定宽度而不是 flex-basis */
-  flex-shrink: 0;
-  background-color: #2c3e50;
-  height: 100vh;
+/* --- 4. 侧边栏样式 (几乎不变) --- */
+.sidebar {
+  width: 320px;
+  background-color: white;
+  border-right: 1px solid #e5e7eb;
+  transition: width 0.3s ease; /* 过渡效果改为 width */
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0; /* 关键！防止侧边栏被意外压缩 */
+}
+
+.sidebar-hidden {
+  width: 0;
+  /* 隐藏时添加一些额外样式，防止内容溢出 */
   overflow: hidden;
+  border-right: none;
 }
 
-/* 聊天列表 */
-.chat-list-panel {
-  width: 280px; /* 使用固定宽度 */
-  flex-shrink: 0;
-  background-color: #ecf0f1;
-  border-right: 1px solid #bdc3c7;
-  height: 100vh;
-  overflow-y: auto; /* 只允许垂直滚动 */
-  overflow-x: hidden; /* 禁用水平滚动 */
-}
-
-/* 主内容区 - 占据剩余全部空间 */
+/* --- 5. 主内容区域 (最核心的修改) --- */
 .main-content {
+  flex: 1; /* 自动占据所有剩余空间 */
+  display: flex;
+  flex-direction: column;
+  /* overflow: hidden; */ /* 暂时移除，让子元素滚动 */
+  min-width: 0; /* 关键！防止被子元素撑开 */
+}
+
+/* 顶部工具栏 (不变) */
+.top-header {
+  height: 56px;
+  background-color: white;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+
+/* 内容区域 (不变) */
+.content-area {
   flex: 1;
-  height: 100vh;
-  overflow: hidden; /* 防止内容溢出 */
-  background-color: #ffffff;
-  /* 确保宽度计算正确 */
-  width: calc(100vw - 360px); /* 100vw - 80px(sidebar) - 280px(chatlist) */
-  min-width: 0;
+  overflow: hidden; /* 关键！让这个容器负责内部滚动 */
 }
 
-/* 响应式处理 */
+.content-area > * {
+  height: 100%;
+  width: 100%;
+}
+
+/* --- 6. 其他所有样式保持不变 --- */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.menu-toggle-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  transition: background-color 0.2s ease;
+}
+.menu-toggle-btn:hover {
+  background-color: #f3f4f6;
+}
+.menu-toggle-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.current-chat-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #111827;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @media (max-width: 768px) {
-  .left-sidebar {
-    width: 60px;
+  .sidebar {
+    width: 280px;
   }
-
-  .chat-list-panel {
-    width: 200px;
-  }
-
-  .main-content {
-    width: calc(100vw - 260px);
-  }
-}
-
-@media (max-width: 640px) {
-  /* 移动端隐藏侧边栏，全屏显示聊天 */
-  .left-sidebar,
-  .chat-list-panel {
-    display: none;
-  }
-
-  .main-content {
-    width: 100vw;
+  .current-chat-title {
+    font-size: 14px;
+    max-width: 200px;
   }
 }
 </style>

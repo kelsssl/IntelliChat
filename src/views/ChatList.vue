@@ -30,6 +30,12 @@ const navigateToChat = (chatId: string) => {
   router.push(`/chat/${chatId}`)
 }
 
+//导航到首页
+const navigateToHome = () => {
+  openedMenuId.value = null
+  chatStore.setCurrentChat('')
+  router.push('/')
+}
 //创建新对话：调用pinia管理的createNewChat()
 const CreateNewChat = () => {
   openedMenuId.value = null
@@ -114,7 +120,7 @@ const openSettings = () => {
 
     <!-- 导航菜单 -->
     <div class="nav-menu">
-      <div class="nav-item">
+      <div class="nav-item" @click="navigateToHome">
         <ChatBubbleLeftRightIcon class="icon" />
         <span>Chats</span>
       </div>

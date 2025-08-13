@@ -16,6 +16,7 @@ export const useChatStore = defineStore('chat', () => {
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
     apiEndpoint: import.meta.env.VITE_COZE_API_ENDPOINT || '',
     apiKey: import.meta.env.VITE_COZE_API_KEY || '',
+    cozeBotId: import.meta.env.VITE_COZE_BOT_ID || '',
   })
 
   const isSending = ref(false) //表示当前是否正在等待AI响应，发送按钮的禁用状态
@@ -55,25 +56,37 @@ export const useChatStore = defineStore('chat', () => {
   // 3.1 生命周期与持久化
   /**
    * @description 应用的初始化程序。从本地存储加载数据，并设置初始状态。
-   * 在 ChatView.vue 的 onMounted 和 router/index.ts 的重定向逻辑中被调用。
    */
   function init() {
+    // 职责一：加载对话列表
     const savedChats = localStorage.getItem('chat-list')
     if (savedChats) {
-      chatList.value = JSON.parse(savedChats)
+      try {
+        chatList.value = JSON.parse(savedChats)
+      } catch (e) {
+        console.error('加载对话列表失败', e)
+      }
     }
 
-    // 如果列表为空，就让它为空。默认选中第一个对话（如果存在）。
-    if (chatList.value.length > 0) {
-      setCurrentChat(chatList.value[0].id)
-    } else {
-      // 如果列表为空，确保当前ID也为空
-      currentChatId.value = null
-    }
-
+    // 职责二：加载应用设置
     const savedSettings = localStorage.getItem('app-settings')
     if (savedSettings) {
-      settings.value = JSON.parse(savedSettings)
+      try {
+        settings.value = JSON.parse(savedSettings)
+      } catch (e) {
+        console.error('加载设置失败', e)
+      }
+    }
+  }
+
+  /**
+   * @description 更新全局的默认系统提示词
+   * @param {string} newPrompt - 新的提示词
+   */
+  function updateDefaultSystemPrompt(newPrompt: string) {
+    if (typeof newPrompt === 'string') {
+      settings.value.systemPrompt = newPrompt.trim()
+      saveToLocalStorage()
     }
   }
 
@@ -115,6 +128,7 @@ export const useChatStore = defineStore('chat', () => {
   function deleteChat(chatId: string) {
     const index = chatList.value.findIndex((c) => c.id === chatId)
     if (index !== -1) {
+      //找不到对话时findIndex返回-1
       chatList.value.splice(index, 1)
       saveToLocalStorage()
     }
@@ -128,8 +142,8 @@ export const useChatStore = defineStore('chat', () => {
    */
   function renameChat(chatId: string, newTitle: string) {
     const chat = chatList.value.find((c) => c.id === chatId)
-    if (chat && newTitle.trim()) {
-      chat.title = newTitle.trim()
+    if (chat && newTitle) {
+      chat.title = newTitle
       updateChat(chatId) // 复用 updateChat 来更新时间戳
       saveToLocalStorage()
     }
@@ -164,20 +178,33 @@ export const useChatStore = defineStore('chat', () => {
 
   /**
    * @description 实时更新AI助手消息的内容，用于实现打字机效果。
+   * 【最终优化版】
    * @param {string} messageId - 要更新的消息ID。
    * @param {string} content - 最新的完整内容。
    */
   function updateAssistantMessage(messageId: string, content: string) {
+    // 依然先进行安全检查
     if (!currentChat.value) return
 
-    const message = currentChat.value.messages.find((msg) => msg.id === messageId)
-    if (message && message.role === 'assistant') {
-      message.content = content
+    // 找到需要更新的消息在数组中的索引 (index)
+    const messageIndex = currentChat.value.messages.findIndex((msg) => msg.id === messageId)
+
+    // 确保找到了消息，并且它确实是助手的消息
+    if (messageIndex !== -1 && currentChat.value.messages[messageIndex].role === 'assistant') {
+      // 而是创建一个全新的消息对象，并用它替换掉数组中的旧对象。
+      const updatedMessage = {
+        ...currentChat.value.messages[messageIndex], // 复制旧消息的所有属性
+        content: content, // 用新内容覆盖 content 属性
+      }
+
+      // 使用 splice 方法，用新对象替换旧对象。
+      currentChat.value.messages.splice(messageIndex, 1, updatedMessage)
+
+      // 更新时间和保存
       updateChat(currentChat.value.id)
       saveToLocalStorage()
     }
   }
-
   //3.4 内部辅助函数
 
   /**
@@ -197,16 +224,27 @@ export const useChatStore = defineStore('chat', () => {
   function addMessageToCurrentChat(role: MessageRole, content: string = '') {
     if (!currentChat.value) return null
 
+    //创建一个message对象
     const message: Message = {
-      id: uuidv4(),
-      role,
-      content,
-      timestamp: Date.now(),
+      id: uuidv4(), //生成消息的id
+      role, //消息角色：用户或AI
+      content, //内容
+      timestamp: Date.now(), //时间戳记录当前时间
     }
-    currentChat.value.messages.push(message)
+    currentChat.value.messages.push(message) //将新消息 push 进当前对话的 messages 数组
     updateChat(currentChat.value.id)
     saveToLocalStorage()
     return message
+  }
+
+  /**
+   * @description 更新应用设置并保存到本地存储
+   * 被 SettingsModal.vue 的保存按钮调用
+   * @param {Partial<AppSettings>} newSettings - 要更新的设置项
+   */
+  function updateSettings(newSettings: Partial<AppSettings>) {
+    settings.value = { ...settings.value, ...newSettings }
+    saveToLocalStorage()
   }
 
   return {
@@ -220,6 +258,7 @@ export const useChatStore = defineStore('chat', () => {
     fullMessages,
     // Actions
     init,
+    updateDefaultSystemPrompt,
     setCurrentChat,
     createNewChat,
     deleteChat,
@@ -227,5 +266,6 @@ export const useChatStore = defineStore('chat', () => {
     addUserMessage,
     addAssistantMessage,
     updateAssistantMessage,
+    updateSettings,
   }
 })

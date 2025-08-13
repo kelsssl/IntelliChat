@@ -14,6 +14,7 @@ export interface Message {
 export interface ApiMessage {
   role: 'user' | 'assistant'
   content: string
+  content_type: 'text'
 }
 
 // 对话的类型
@@ -39,4 +40,5 @@ export interface AppSettings {
   systemPrompt: string // 系统提示词
   apiEndpoint: string // API地址
   apiKey: string // API密钥
+  cozeBotId: string // Coze Bot ID
 }

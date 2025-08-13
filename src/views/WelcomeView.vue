@@ -1,43 +1,35 @@
 <template>
-  <div class="home-container">
-    <div class="welcome-screen">
-      <div class="welcome-content">
-        <h1 class="welcome-title">嗨！我是你的智聊助手</h1>
-        <p class="welcome-subtitle">让我们开始探索智能创造的可能性！</p>
+  <!-- 首页欢迎界面（当没有选择对话时） -->
+  <div class="welcome-screen">
+    <div class="welcome-content">
+      <h1 class="welcome-title">嗨！我是你的智聊助手</h1>
+      <p class="welcome-subtitle">让我们开始探索智能创造的可能性！</p>
 
-        <div class="suggestions-grid">
-          <div
-            v-for="suggestion in suggestions"
-            :key="suggestion.title"
-            @click="handleSuggestionClick(suggestion.prompt)"
-            class="suggestion-card"
-          >
-            <h3 class="suggestion-title">{{ suggestion.icon }} {{ suggestion.title }}</h3>
-            <p class="suggestion-description">{{ suggestion.description }}</p>
-          </div>
+      <div class="suggestions-grid">
+        <div
+          v-for="suggestion in suggestions"
+          :key="suggestion.title"
+          @click="handleSuggestionClick(suggestion.prompt)"
+          class="suggestion-card"
+        >
+          <h3 class="suggestion-title">{{ suggestion.icon }} {{ suggestion.title }}</h3>
+          <p class="suggestion-description">{{ suggestion.description }}</p>
         </div>
+      </div>
 
-        <!-- 快速输入框 -->
-        <div class="quick-input-wrapper">
-          <textarea
-            v-model="quickInput"
-            @keydown.enter.exact.prevent="startQuickChat"
-            @input="adjustQuickInputHeight"
-            placeholder="或者直接在这里输入您的问题..."
-            class="quick-input"
-            rows="1"
-          />
-          <button @click="startQuickChat" :disabled="!quickInput.trim()" class="quick-send-btn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-              />
-            </svg>
-          </button>
-        </div>
+      <!-- 首页快速输入 -->
+      <div class="quick-input-wrapper">
+        <textarea
+          v-model="quickInput"
+          @keydown.enter.exact.prevent="startQuickChat"
+          @input="adjustQuickInputHeight"
+          placeholder="或者直接在这里输入您的问题..."
+          class="quick-input"
+          rows="1"
+        />
+        <button @click="startQuickChat" :disabled="!quickInput.trim()" class="quick-send-btn">
+          <PaperAirplaneIcon class="send-icon" />
+        </button>
       </div>
     </div>
   </div>
@@ -47,11 +39,13 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chat'
+import { PaperAirplaneIcon } from '@heroicons/vue/24/solid'
 
 const router = useRouter()
 const chatStore = useChatStore()
 const quickInput = ref('')
 
+// 建议数据
 const suggestions = [
   {
     icon: '💡',
@@ -79,27 +73,30 @@ const suggestions = [
   },
 ]
 
+//调整输入框最大高度为120
+//当用户在 <textarea> 中输入或删除内容时，动态计算出内容所需的高度
+//并实时调整文本框的 height 样式，同时限制其最大高度，防止无限增高。
 const adjustQuickInputHeight = (event: Event) => {
   const textarea = event.target as HTMLTextAreaElement
   textarea.style.height = 'auto'
   textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px'
 }
 
-const handleSuggestionClick = async (prompt: string) => {
+const startChatWithContent = async (content: string) => {
+  if (!content) return
   const newChatId = chatStore.createNewChat()
-  quickInput.value = prompt
-  await router.push(`/chat/${newChatId}`)
+  // 将内容作为查询参数传递
+  await router.push({ name: 'chat', params: { chatId: newChatId }, query: { initial: content } })
 }
 
+// 建议卡片点击处理
+const handleSuggestionClick = (prompt: string) => {
+  startChatWithContent(prompt)
+}
+
+// 快速开始对话
 const startQuickChat = async () => {
-  if (!quickInput.value.trim()) return
-
-  // const content = quickInput.value.trim()
-  const newChatId = chatStore.createNewChat()
-  await router.push(`/chat/${newChatId}`)
-
-  // 这里您可能需要触发发送消息的逻辑
-  // 具体实现取决于您的store结构
+  startChatWithContent(quickInput.value.trim())
 }
 </script>
 
@@ -109,7 +106,7 @@ const startQuickChat = async () => {
   background-color: white;
 }
 
-/* 与ChatView中的欢迎屏幕样式相同 */
+/* 欢迎屏幕 */
 .welcome-screen {
   height: 100%;
   display: flex;
@@ -137,6 +134,7 @@ const startQuickChat = async () => {
   margin-bottom: 32px;
 }
 
+/* gird网格布局 */
 .suggestions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -157,6 +155,7 @@ const startQuickChat = async () => {
 .suggestion-card:hover {
   border-color: #d1d5db;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  /* 光标悬停时平滑上移 */
   transform: translateY(-2px);
 }
 
@@ -173,6 +172,7 @@ const startQuickChat = async () => {
   line-height: 1.5;
 }
 
+/* 快速输入 */
 .quick-input-wrapper {
   position: relative;
   max-width: 600px;
@@ -193,6 +193,7 @@ const startQuickChat = async () => {
   overflow-y: auto;
   transition: border-color 0.2s ease;
   background-color: white;
+  height: 48px;
 }
 
 .quick-input:focus {
@@ -227,7 +228,7 @@ const startQuickChat = async () => {
   cursor: not-allowed;
 }
 
-.quick-send-btn svg {
+.send-icon {
   width: 16px;
   height: 16px;
 }

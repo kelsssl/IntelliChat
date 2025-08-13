@@ -4,172 +4,238 @@ import type { Message } from '../types'
 import { renderMarkdown, hasCodeBlock } from '@/utils/markdown'
 import CodeBlock from './CodeBlock.vue'
 
-// 组件属性
+// 定义文本块的"形状"
+interface TextPart {
+  type: 'text'
+  content: string
+}
+
+// 定义代码块的"形状"
+interface CodePart {
+  type: 'code'
+  language: string
+  code: string
+}
+
+// 定义 parts 数组可以包含的联合类型
+type ContentPart = TextPart | CodePart
+
 const props = defineProps<{
   message: Message
 }>()
 
-// 检查消息是否包含代码块
+// 检查是否是加载状态
+const isLoading = computed(() => {
+  const content = props.message.content?.trim() || ''
+  return content === '正在思考...' || content === '' || content === '加载中...'
+})
+
+// 添加调试日志
+const debugMessage = computed(() => {
+  console.log('MessageComponent 收到的消息:', {
+    id: props.message.id,
+    content: props.message.content,
+    contentLength: props.message.content?.length || 0,
+    role: props.message.role,
+    isLoading: isLoading.value,
+  })
+  return props.message
+})
+
 const hasCodeBlocks = computed(() => {
-  return hasCodeBlock(props.message.content)
+  if (isLoading.value) return false
+  const result = hasCodeBlock(debugMessage.value.content)
+  console.log('是否包含代码块:', result)
+  return result
 })
 
-// 渲染Markdown内容
 const renderedContent = computed(() => {
-  return renderMarkdown(props.message.content)
+  if (isLoading.value) return ''
+  if (!debugMessage.value.content) {
+    console.warn('消息内容为空')
+    return ''
+  }
+  const rendered = renderMarkdown(debugMessage.value.content)
+  console.log('渲染后的内容:', rendered)
+  return rendered
 })
 
-// 格式化时间
 const formattedTime = computed(() => {
-  const date = new Date(props.message.timestamp)
+  const date = new Date(debugMessage.value.timestamp)
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 })
 
-// 如果消息包含代码块，将内容拆分为普通文本和代码块
 const contentParts = computed(() => {
-  if (!hasCodeBlocks.value) return []
+  if (isLoading.value || !hasCodeBlocks.value || !debugMessage.value.content) return []
 
-  const parts = []
-  const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g
+  const parts: ContentPart[] = []
+  const content = debugMessage.value.content
 
+  // 改进正则表达式，支持更多代码块格式
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g
   let lastIndex = 0
   let match
 
-  while ((match = codeBlockRegex.exec(props.message.content)) !== null) {
-    // 添加代码块前的文本
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    // 添加代码块之前的文本
     if (match.index > lastIndex) {
-      const textContent = props.message.content.substring(lastIndex, match.index)
+      const textContent = content.substring(lastIndex, match.index).trim()
+      if (textContent) {
+        parts.push({
+          type: 'text',
+          content: renderMarkdown(textContent),
+        })
+      }
+    }
+
+    // 添加代码块
+    const language = match[1] || 'plaintext'
+    const code = match[2].trim()
+
+    if (code) {
+      parts.push({
+        type: 'code',
+        language: language,
+        code: code,
+      })
+    }
+
+    lastIndex = match.index + match[0].length
+  }
+
+  // 添加剩余的文本
+  if (lastIndex < content.length) {
+    const textContent = content.substring(lastIndex).trim()
+    if (textContent) {
       parts.push({
         type: 'text',
         content: renderMarkdown(textContent),
       })
     }
-
-    // 添加代码块
-    parts.push({
-      type: 'code',
-      language: match[1] || 'plaintext',
-      code: match[2].trim(),
-    })
-
-    lastIndex = match.index + match[0].length
   }
 
-  // 添加最后一个代码块后的文本
-  if (lastIndex < props.message.content.length) {
-    const textContent = props.message.content.substring(lastIndex)
-    parts.push({
-      type: 'text',
-      content: renderMarkdown(textContent),
-    })
-  }
-
+  console.log('解析后的内容部分:', parts)
   return parts
 })
 </script>
 
 <template>
-  <div class="message-item" :class="message.role">
-    <div class="avatar">
-      <!-- 根据角色显示不同的头像 -->
-      <div v-if="message.role === 'user'" class="user-avatar">你</div>
-      <div v-else class="assistant-avatar">AI</div>
+  <div class="message-content">
+    <!-- 加载状态 -->
+    <div v-if="isLoading" class="loading-state">
+      <div class="loading-dots">
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <div class="dot"></div>
+      </div>
+      <span class="loading-text">正在思考...</span>
     </div>
-    <div class="message-content">
-      <!-- 使用v-html渲染Markdown内容 -->
-      <div v-if="!hasCodeBlocks" class="text" v-html="renderedContent"></div>
 
-      <!-- 如果有代码块，手动拆分内容并渲染 -->
-      <template v-else>
-        <div v-for="(part, index) in contentParts" :key="index">
+    <!-- 正常消息内容 -->
+    <template v-else>
+      <!-- 处理真正的空消息情况 -->
+      <div v-if="!message.content || message.content.trim() === ''" class="empty-message">
+        <span class="text-gray-400 italic">消息内容为空</span>
+      </div>
+
+      <!-- 无代码块的简单渲染 -->
+      <div v-else-if="!hasCodeBlocks" class="text" v-html="renderedContent"></div>
+
+      <!-- 有代码块的复杂渲染 -->
+      <template v-else-if="contentParts.length > 0">
+        <div v-for="(part, index) in contentParts" :key="`${message.id}-part-${index}`">
           <!-- 普通文本部分 -->
           <div v-if="part.type === 'text'" class="text" v-html="part.content"></div>
 
           <!-- 代码块部分 -->
-          <CodeBlock v-if="part.code === 'code'" :code="part.code" :language="part.language" />
+          <CodeBlock v-else-if="part.type === 'code'" :code="part.code" :language="part.language" />
         </div>
       </template>
 
-      <!-- 时间戳 -->
-      <div class="timestamp">{{ formattedTime }}</div>
-    </div>
+      <!-- 解析失败的备用渲染 -->
+      <div v-else class="text" v-html="renderedContent"></div>
+    </template>
+
+    <!-- 时间戳 -->
+    <div class="timestamp">{{ formattedTime }}</div>
   </div>
 </template>
 
 <style scoped>
-.message-item {
-  display: flex;
-  margin-bottom: 1.5rem;
-  animation: fade-in 0.3s ease-in-out;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  margin-right: 1rem;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-}
-
-.user-avatar {
-  background-color: #e1f5fe;
-  color: #0288d1;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-}
-
-.assistant-avatar {
-  background-color: #e8f5e9;
-  color: #388e3c;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-}
-
 .message-content {
-  flex: 1;
-  max-width: calc(100% - 60px);
+  width: 100%;
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: #6b7280;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  background-color: #9ca3af;
+  border-radius: 50%;
+  animation: typing 1.4s infinite ease-in-out both;
+}
+
+.dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+.dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+.dot:nth-child(3) {
+  animation-delay: 0s;
+}
+
+@keyframes typing {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+.loading-text {
+  font-size: 0.875rem;
+  font-style: italic;
 }
 
 .text {
-  line-height: 1.5;
+  line-height: 1.6;
   white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
-.text :deep(a) {
-  color: #0366d6;
-  text-decoration: none;
+.empty-message {
+  padding: 8px 0;
 }
 
-.text :deep(a:hover) {
-  text-decoration: underline;
+.timestamp {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 8px;
+  text-align: right;
 }
 
+/* deep 选择器用于修改 v-html 内部的样式 */
 .text :deep(p) {
-  margin-top: 0.5em;
-  margin-bottom: 0.5em;
+  margin: 0.5em 0;
 }
 
 .text :deep(ul),
@@ -179,34 +245,30 @@ const contentParts = computed(() => {
 }
 
 .text :deep(li) {
-  margin: 0.25em 0;
+  margin-bottom: 0.25em;
 }
 
 .text :deep(blockquote) {
-  border-left: 4px solid #dfe2e5;
+  border-left: 3px solid #dfe2e5;
   padding-left: 1em;
   color: #6a737d;
   margin: 0.5em 0;
 }
 
-.timestamp {
-  font-size: 0.75rem;
-  color: #888;
-  margin-top: 0.5rem;
-  text-align: right;
+.text :deep(a) {
+  color: #3b82f6;
+  text-decoration: none;
 }
 
-/* 根据角色设置不同的样式 */
-.message-item.user .message-content {
-  background-color: #f1f5f9;
-  padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+.text :deep(a:hover) {
+  text-decoration: underline;
 }
 
-.message-item.assistant .message-content {
-  background-color: #ffffff;
-  padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid #e2e8f0;
+.text :deep(code) {
+  background-color: #f6f8fa;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 0.875em;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 </style>

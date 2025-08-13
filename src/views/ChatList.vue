@@ -1,30 +1,113 @@
+<script setup lang="ts">
+import { ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useChatStore } from '../stores/chat'
+import type { Chat } from '../types'
+import { useRouter } from 'vue-router'
+import {
+  ChevronLeftIcon,
+  PlusIcon,
+  ChatBubbleLeftRightIcon,
+  ArchiveBoxIcon,
+  Cog6ToothIcon,
+  EllipsisVerticalIcon,
+} from '@heroicons/vue/24/outline'
+
+const chatStore = useChatStore()
+const router = useRouter()
+const { chatList, currentChatId } = storeToRefs(chatStore)
+
+//用于控制哪个下拉菜单可见
+//如果当前点击的聊天项的菜单已经打开，则关闭它（设置为null）；否则，打开对应的菜单（设置为该聊天项的ID）
+const openedMenuId = ref<string | null>(null)
+const toggleMenu = (chatId: string) => {
+  openedMenuId.value = openedMenuId.value === chatId ? null : chatId
+}
+
+//点击内容区域时，关闭任何打开的菜单，并导航到对应的聊天页面
+const navigateToChat = (chatId: string) => {
+  openedMenuId.value = null
+  router.push(`/chat/${chatId}`)
+}
+
+//创建新对话：调用pinia管理的createNewChat()
+const CreateNewChat = () => {
+  openedMenuId.value = null
+  const newChatId = chatStore.createNewChat()
+  router.push(`/chat/${newChatId}`)
+}
+
+const handleRename = (chatId: string) => {
+  const chat = chatList.value.find((c) => c.id === chatId)
+  if (!chat) return
+  //使用浏览器原生的 prompt 对话框
+  const newTitle = prompt('请输入新的对话标题:', chat.title)
+  if (newTitle) {
+    chatStore.renameChat(chatId, newTitle)
+  }
+  openedMenuId.value = null
+}
+
+const handleDelete = (chatId: string) => {
+  if (confirm('确定要删除这个对话吗？此操作不可撤销。')) {
+    chatStore.deleteChat(chatId)
+    //如果删除的是当前正在查看的对话，导航到第一个对话或欢迎页
+    if (currentChatId.value === chatId) {
+      if (chatList.value.length > 0) {
+        router.push(`/chat/${chatList.value[0].id}`)
+      } else {
+        router.push(`/`)
+      }
+    }
+  }
+  openedMenuId.value = null
+}
+
+// 工具函数
+//在content中预览当前的最新消息摘要
+const getLastMessage = (chat: Chat) => {
+  if (!chat.messages || chat.messages.length === 0) return '暂无消息'
+  //根据数组最后一个元素的索引获取最新消息内容
+  const lastMsg = chat.messages[chat.messages.length - 1]
+  //截取前40个字符，如果超过则添加省略号
+  return lastMsg.content.slice(0, 40) + (lastMsg.content.length > 40 ? '...' : '')
+}
+
+//时间戳设置，下面的createdAt时间戳作为实参传入，更新最新消息的时间戳
+const formatTime = (timestamp: number) => {
+  const date = new Date(timestamp)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  //毫秒
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
+  return `${Math.floor(diff / 86400000)}天前`
+}
+
+//与父组件APP的通信
+const emit = defineEmits(['toggle-sidebar', 'open-settings'])
+
+const openSettings = () => {
+  // 发出一个事件，让父组件 App.vue 去处理
+  emit('open-settings')
+}
+</script>
+
 <template>
   <div class="chat-list-container">
     <!-- 顶部区域 -->
     <div class="chat-list-header">
       <div class="header-title-row">
-        <h1 class="app-title">Claude</h1>
+        <h1 class="app-title">智聊助手</h1>
+        <!-- 向父组件 (App.vue) 通信。触发toggle-sidebar事件，App.vue 监听事件后，就会调用toggleSidebar 方法来收起侧边栏。 -->
         <button @click="$emit('toggle-sidebar')" class="close-sidebar-btn" title="隐藏侧边栏">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
+          <ChevronLeftIcon class="icon" />
         </button>
       </div>
 
-      <button @click="handleCreateNewChat" class="new-chat-button">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 4v16m8-8H4"
-          />
-        </svg>
+      <button @click="CreateNewChat" class="new-chat-button">
+        <PlusIcon class="icon" />
         New chat
       </button>
     </div>
@@ -32,34 +115,22 @@
     <!-- 导航菜单 -->
     <div class="nav-menu">
       <div class="nav-item">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-          />
-        </svg>
+        <ChatBubbleLeftRightIcon class="icon" />
         <span>Chats</span>
       </div>
       <div class="nav-item">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-          />
-        </svg>
+        <ArchiveBoxIcon class="icon" />
         <span>Artifacts</span>
       </div>
     </div>
 
-    <!-- 对话历史 - 保留您的所有逻辑 -->
+    <!-- 对话历史 -->
     <div class="chat-history">
       <div class="section-title">Recents</div>
 
       <div v-if="chatList.length > 0" class="chat-list">
+        <!-- v-for遍历chatlist数组，为每一个 chat 对象创建一个列表项 -->
+        <!-- 动态绑定class，选中时添加active样式 -->
         <div
           v-for="chat in chatList"
           :key="chat.id"
@@ -73,11 +144,7 @@
 
           <!-- 选项按钮 -->
           <button @click.stop="toggleMenu(chat.id)" class="chat-options-btn">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path
-                d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"
-              />
-            </svg>
+            <EllipsisVerticalIcon class="icon" />
           </button>
 
           <!-- 下拉菜单 -->
@@ -90,14 +157,7 @@
 
       <!-- 空状态 -->
       <div v-else class="empty-state">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-          />
-        </svg>
+        <ChatBubbleLeftRightIcon class="empty-state-icon" />
         <p>没有历史会话</p>
         <span>创建新对话开始聊天</span>
       </div>
@@ -106,108 +166,14 @@
     <!-- 底部设置 -->
     <div class="sidebar-footer">
       <div class="nav-item" @click="openSettings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-          />
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-          />
-        </svg>
+        <Cog6ToothIcon class="icon" />
         <span>Settings</span>
       </div>
     </div>
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useChatStore } from '../stores/chat'
-import type { Chat } from '../types'
-import { useRouter } from 'vue-router'
-
-const chatStore = useChatStore()
-const router = useRouter()
-const { chatList, currentChatId } = storeToRefs(chatStore)
-
-const openedMenuId = ref<string | null>(null)
-
-const toggleMenu = (chatId: string) => {
-  openedMenuId.value = openedMenuId.value === chatId ? null : chatId
-}
-
-const navigateToChat = (chatId: string) => {
-  openedMenuId.value = null
-  router.push(`/chat/${chatId}`)
-}
-
-const handleCreateNewChat = () => {
-  openedMenuId.value = null
-  const newChatId = chatStore.createNewChat()
-  router.push(`/chat/${newChatId}`)
-}
-
-const handleRename = (chatId: string) => {
-  const chat = chatList.value.find((c) => c.id === chatId)
-  if (!chat) return
-
-  const newTitle = prompt('请输入新的对话标题:', chat.title)
-  if (newTitle) {
-    chatStore.renameChat(chatId, newTitle)
-  }
-  openedMenuId.value = null
-}
-
-const handleDelete = (chatId: string) => {
-  if (confirm('确定要删除这个对话吗？此操作不可撤销。')) {
-    chatStore.deleteChat(chatId)
-
-    if (currentChatId.value === chatId) {
-      if (chatList.value.length > 0) {
-        router.push(`/chat/${chatList.value[0].id}`)
-      } else {
-        router.push(`/`)
-      }
-    }
-  }
-  openedMenuId.value = null
-}
-
-const openSettings = () => {
-  console.log('打开设置')
-}
-
-// 工具函数
-const getLastMessage = (chat: Chat) => {
-  if (!chat.messages || chat.messages.length === 0) return '暂无消息'
-  const lastMsg = chat.messages[chat.messages.length - 1]
-  return lastMsg.content.slice(0, 40) + (lastMsg.content.length > 40 ? '...' : '')
-}
-
-const formatTime = (timestamp: number) => {
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-
-  if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
-  return `${Math.floor(diff / 86400000)}天前`
-}
-
-defineEmits(['toggle-sidebar'])
-</script>
-
 <style>
-/* ChatList 专用样式 */
 .chat-list-container {
   height: 100%;
   display: flex;
@@ -235,26 +201,29 @@ defineEmits(['toggle-sidebar'])
 }
 
 .close-sidebar-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: none;
   background: none;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #6b7280;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .close-sidebar-btn:hover {
   background-color: #f3f4f6;
+  color: #374151;
 }
 
-.close-sidebar-btn svg {
+/* 统一的图标样式 */
+.icon {
   width: 16px;
   height: 16px;
+  flex-shrink: 0;
 }
 
 .new-chat-button {
@@ -270,15 +239,18 @@ defineEmits(['toggle-sidebar'])
   cursor: pointer;
   font-weight: 500;
   transition: background-color 0.2s ease;
+  font-size: 14px;
+  text-align: left;
+}
+
+.new-chat-button .icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .new-chat-button:hover {
   background-color: #dbeafe;
-}
-
-.new-chat-button svg {
-  width: 20px;
-  height: 20px;
 }
 
 /* 导航菜单 */
@@ -299,11 +271,6 @@ defineEmits(['toggle-sidebar'])
 
 .nav-item:hover {
   background-color: #f9fafb;
-}
-
-.nav-item svg {
-  width: 16px;
-  height: 16px;
 }
 
 /* 对话历史 */
@@ -400,11 +367,6 @@ defineEmits(['toggle-sidebar'])
   background-color: #e5e7eb;
 }
 
-.chat-options-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
 /* 下拉菜单 */
 .options-dropdown {
   position: absolute;
@@ -449,7 +411,7 @@ defineEmits(['toggle-sidebar'])
   color: #6b7280;
 }
 
-.empty-state svg {
+.empty-state-icon {
   width: 48px;
   height: 48px;
   margin-bottom: 16px;

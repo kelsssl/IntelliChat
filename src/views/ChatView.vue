@@ -125,44 +125,83 @@ const sendMessage = async () => {
     const decoder = new TextDecoder()
     let accumulatedText = ''
     let hasReceivedContent = false // 新增标志位，用于检查是否收到过有效内容
+    let buffer = '' // 【新增】用于缓存不完整的数据
 
     while (true) {
       const { value, done } = await reader.read()
       if (done) break // 当服务器关闭流时，退出循环
 
       const chunk = decoder.decode(value, { stream: true })
+      buffer += chunk // 【修复】将新数据添加到缓冲区
 
-      const lines = chunk.split('\n\n')
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const dataStr = line.slice(6).trim()
-          if (dataStr === '[DONE]') continue
+      // 【修复】按双换行符分割完整的 SSE 事件
+      const events = buffer.split('\n\n')
+      // 保留最后一个可能不完整的事件
+      buffer = events.pop() || ''
+
+      for (const eventBlock of events) {
+        if (!eventBlock.trim()) continue
+
+        const lines = eventBlock.split('\n')
+        let currentEvent = ''
+        let eventData = ''
+
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            eventData = line.slice(5).trim()
+          }
+        }
+
+        // 处理完整的事件
+        if (eventData) {
+          if (eventData === '"[DONE]"' || eventData === '[DONE]') continue
 
           try {
-            const parsed = JSON.parse(dataStr)
+            const parsed = JSON.parse(eventData)
 
             // 优先检查流中是否包含错误事件
-            if (parsed.event === 'conversation.chat.failed') {
-              // 如果流中途失败了（例如余额不足），就构造一个错误并抛出
-              // 这个 error 会被外层的 catch 块捕获
+            if (currentEvent === 'conversation.chat.failed') {
               throw new Error(parsed.last_error?.msg || '流式传输过程中发生未知错误')
             }
 
-            // 检查是否是有效的回答内容
-            if (
-              parsed.message &&
-              parsed.message.type === 'answer' &&
-              typeof parsed.message.content === 'string'
-            ) {
-              accumulatedText += parsed.message.content
+            let contentToAdd = ''
+
+            // 【修复】同时支持模拟模式和正式模式的数据格式
+            if (currentEvent === 'conversation.message.delta') {
+              // 正式模式：只处理 delta 事件中的 answer 类型消息
+              if (
+                parsed.type === 'answer' &&
+                typeof parsed.content === 'string' &&
+                parsed.content.trim() && // 确保内容不为空
+                !parsed.content.includes('"msg_type"') // 过滤掉包含调试JSON的内容
+              ) {
+                contentToAdd = parsed.content
+              }
+            } else if (parsed.message) {
+              // 模拟模式：处理简化格式的消息
+              if (
+                parsed.message.role === 'assistant' &&
+                parsed.message.type === 'answer' &&
+                typeof parsed.message.content === 'string' &&
+                parsed.message.content.trim()
+              ) {
+                contentToAdd = parsed.message.content
+              }
+            }
+
+            // 如果获取到了有效内容，则更新UI
+            if (contentToAdd) {
+              accumulatedText += contentToAdd
               hasReceivedContent = true // 标记已经收到了有效内容
               // 高频调用 store action，实时更新UI，形成打字机效果
               chatStore.updateAssistantMessage(assistantMessage.id, accumulatedText)
             }
           } catch (e) {
             if (e instanceof Error) throw e
-            // 忽略其他 JSON 解析错误，因为流的特性可能导致一个JSON对象被分割在两个chunk里
-            console.warn('解析流数据片段失败:', dataStr, e)
+            // 忽略 JSON 解析错误，可能是由于数据分割导致的
+            console.warn('解析事件数据失败:', eventData, e)
           }
         }
       }

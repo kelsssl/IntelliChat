@@ -49,38 +49,55 @@ const hasCodeBlocks = computed(() => {
   return result
 })
 
-const renderedContent = computed(() => {
-  if (isLoading.value) return ''
-  if (!debugMessage.value.content) {
-    console.warn('消息内容为空')
-    return ''
-  }
-  const rendered = renderMarkdown(debugMessage.value.content)
-  console.log('渲染后的内容:', rendered)
-  return rendered
-})
-
 const formattedTime = computed(() => {
   const date = new Date(debugMessage.value.timestamp)
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 })
 
+// 优化后的内容解析逻辑
 const contentParts = computed(() => {
-  if (isLoading.value || !hasCodeBlocks.value || !debugMessage.value.content) return []
+  if (isLoading.value || !debugMessage.value.content) return []
 
-  const parts: ContentPart[] = []
   const content = debugMessage.value.content
+  const parts: ContentPart[] = []
 
-  // 改进正则表达式，支持更多代码块格式
-  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g
+  // 如果没有代码块，直接返回整个内容作为文本
+  if (!hasCodeBlocks.value) {
+    parts.push({
+      type: 'text',
+      content: renderMarkdown(content),
+    })
+    return parts
+  }
+
+  console.log('原始内容:', content)
+
+  // 更精确的代码块正则表达式，要求```必须在行首或前面只有空白字符
+  const codeBlockRegex = /(^|\n)```(\w*)\n?([\s\S]*?)\n?```(?=\n|$)/g
   let lastIndex = 0
   let match
 
+  // 重置正则表达式状态
+  codeBlockRegex.lastIndex = 0
+
   while ((match = codeBlockRegex.exec(content)) !== null) {
+    console.log('匹配到代码块:', {
+      fullMatch: match[0],
+      leadingChar: match[1],
+      language: match[2],
+      code: match[3],
+      startIndex: match.index,
+      endIndex: codeBlockRegex.lastIndex,
+    })
+
+    // 计算实际的代码块开始位置（跳过前导换行符）
+    const codeBlockStart = match.index + (match[1] === '\n' ? 1 : 0)
+
     // 添加代码块之前的文本
-    if (match.index > lastIndex) {
-      const textContent = content.substring(lastIndex, match.index).trim()
-      if (textContent) {
+    if (codeBlockStart > lastIndex) {
+      const textContent = content.substring(lastIndex, codeBlockStart)
+      if (textContent.trim()) {
+        console.log('添加文本部分:', textContent)
         parts.push({
           type: 'text',
           content: renderMarkdown(textContent),
@@ -89,24 +106,34 @@ const contentParts = computed(() => {
     }
 
     // 添加代码块
-    const language = match[1] || 'plaintext'
-    const code = match[2].trim()
+    const language = match[2] || 'plaintext'
+    const code = match[3]
 
-    if (code) {
+    // 过滤掉整个内容都被当作markdown代码块的情况
+    if (language !== 'markdown' || code.length < content.length * 0.8) {
+      console.log('添加代码块:', { language, codeLength: code.length })
       parts.push({
         type: 'code',
         language: language,
         code: code,
       })
+    } else {
+      // 如果是markdown代码块且包含大部分内容，当作普通文本处理
+      console.log('将markdown代码块当作普通文本处理')
+      parts.push({
+        type: 'text',
+        content: renderMarkdown(code),
+      })
     }
 
-    lastIndex = match.index + match[0].length
+    lastIndex = codeBlockRegex.lastIndex
   }
 
   // 添加剩余的文本
   if (lastIndex < content.length) {
-    const textContent = content.substring(lastIndex).trim()
-    if (textContent) {
+    const textContent = content.substring(lastIndex)
+    if (textContent.trim()) {
+      console.log('添加剩余文本部分:', textContent)
       parts.push({
         type: 'text',
         content: renderMarkdown(textContent),
@@ -116,6 +143,12 @@ const contentParts = computed(() => {
 
   console.log('解析后的内容部分:', parts)
   return parts
+})
+
+// 单纯的 markdown 渲染（当没有代码块时使用）
+const renderedContent = computed(() => {
+  if (isLoading.value || !debugMessage.value.content) return ''
+  return renderMarkdown(debugMessage.value.content)
 })
 </script>
 
@@ -138,22 +171,30 @@ const contentParts = computed(() => {
         <span class="text-gray-400 italic">消息内容为空</span>
       </div>
 
-      <!-- 无代码块的简单渲染 -->
-      <div v-else-if="!hasCodeBlocks" class="text" v-html="renderedContent"></div>
+      <!-- 有内容的情况 -->
+      <template v-else>
+        <!-- 有代码块的复杂渲染 -->
+        <template v-if="hasCodeBlocks && contentParts.length > 0">
+          <div
+            v-for="(part, index) in contentParts"
+            :key="`${message.id}-part-${index}`"
+            class="content-part"
+          >
+            <!-- 普通文本部分 -->
+            <div v-if="part.type === 'text'" class="text" v-html="part.content"></div>
 
-      <!-- 有代码块的复杂渲染 -->
-      <template v-else-if="contentParts.length > 0">
-        <div v-for="(part, index) in contentParts" :key="`${message.id}-part-${index}`">
-          <!-- 普通文本部分 -->
-          <div v-if="part.type === 'text'" class="text" v-html="part.content"></div>
+            <!-- 代码块部分 -->
+            <CodeBlock
+              v-else-if="part.type === 'code'"
+              :code="part.code"
+              :language="part.language"
+            />
+          </div>
+        </template>
 
-          <!-- 代码块部分 -->
-          <CodeBlock v-else-if="part.type === 'code'" :code="part.code" :language="part.language" />
-        </div>
+        <!-- 无代码块的简单渲染 -->
+        <div v-else class="text" v-html="renderedContent"></div>
       </template>
-
-      <!-- 解析失败的备用渲染 -->
-      <div v-else class="text" v-html="renderedContent"></div>
     </template>
 
     <!-- 时间戳 -->
@@ -222,6 +263,14 @@ const contentParts = computed(() => {
   word-wrap: break-word;
 }
 
+.content-part {
+  margin: 0;
+}
+
+.content-part + .content-part {
+  margin-top: 0.5rem;
+}
+
 .empty-message {
   padding: 8px 0;
 }
@@ -236,6 +285,14 @@ const contentParts = computed(() => {
 /* deep 选择器用于修改 v-html 内部的样式 */
 .text :deep(p) {
   margin: 0.5em 0;
+}
+
+.text :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.text :deep(p:last-child) {
+  margin-bottom: 0;
 }
 
 .text :deep(ul),
@@ -270,5 +327,24 @@ const contentParts = computed(() => {
   padding: 2px 4px;
   font-size: 0.875em;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+.text :deep(h1),
+.text :deep(h2),
+.text :deep(h3),
+.text :deep(h4),
+.text :deep(h5),
+.text :deep(h6) {
+  margin: 1em 0 0.5em 0;
+  font-weight: 600;
+}
+
+.text :deep(h1:first-child),
+.text :deep(h2:first-child),
+.text :deep(h3:first-child),
+.text :deep(h4:first-child),
+.text :deep(h5:first-child),
+.text :deep(h6:first-child) {
+  margin-top: 0;
 }
 </style>

@@ -1,7 +1,7 @@
 import type { ApiMessage } from '@/types'
 
 // 启用模拟模式，避免消耗真实API额度
-const IS_MOCK_MODE = true // 设置为 true 来测试UI功能
+const IS_MOCK_MODE = false // 设置为 true 来测试UI功能
 
 // Coze API 请求体的"蓝图"
 interface CozeChatPayload {

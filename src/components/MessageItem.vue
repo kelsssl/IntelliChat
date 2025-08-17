@@ -1,155 +1,135 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Message } from '../types'
-import { renderMarkdown, hasCodeBlock } from '@/utils/markdown'
+import { renderMarkdown } from '@/utils/markdown'
 import CodeBlock from './CodeBlock.vue'
 
-// 定义文本块的"形状"
+// --- 1. 类型定义 ---
+// 普通文本块
 interface TextPart {
   type: 'text'
-  content: string
+  rawContent: string // 用于复制的原始 Markdown 文本
+  renderedContent: string // 用于 v-html 渲染的 HTML
 }
-
-// 定义代码块的"形状"
+// 代码块
 interface CodePart {
   type: 'code'
   language: string
   code: string
 }
+// 特殊的 Markdown 代码块 (带外壳)
+interface MarkdownCodePart {
+  type: 'markdown-code'
+  content: string // 存放原始的 Markdown 文本
+}
+type ContentPart = TextPart | CodePart | MarkdownCodePart
 
-// 定义 parts 数组可以包含的联合类型
-type ContentPart = TextPart | CodePart
-
+// --- 2. Props ---
 const props = defineProps<{
   message: Message
 }>()
 
-// 检查是否是加载状态
+// --- 3. 基础状态与计算属性 ---
+const copiedPartIndex = ref<number | null>(null) // 用于追踪哪个部分被复制了
+
 const isLoading = computed(() => {
   const content = props.message.content?.trim() || ''
   return content === '正在思考...' || content === '' || content === '加载中...'
 })
 
-// 添加调试日志
-const debugMessage = computed(() => {
-  console.log('MessageComponent 收到的消息:', {
-    id: props.message.id,
-    content: props.message.content,
-    contentLength: props.message.content?.length || 0,
-    role: props.message.role,
-    isLoading: isLoading.value,
-  })
-  return props.message
-})
-
-const hasCodeBlocks = computed(() => {
-  if (isLoading.value) return false
-  const result = hasCodeBlock(debugMessage.value.content)
-  console.log('是否包含代码块:', result)
-  return result
-})
-
 const formattedTime = computed(() => {
-  const date = new Date(debugMessage.value.timestamp)
+  const date = new Date(props.message.timestamp)
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 })
 
-// 优化后的内容解析逻辑
-const contentParts = computed(() => {
-  if (isLoading.value || !debugMessage.value.content) return []
-
-  const content = debugMessage.value.content
+// 4.渲染
+const contentParts = computed((): ContentPart[] => {
+  if (isLoading.value || !props.message.content) {
+    return []
+  }
+  // 清理多余的换行符
+  const content = props.message.content
+    .replace(/\n{3,}/g, '\n\n') // 将3个或更多连续换行符替换为2个
+    .trim()
   const parts: ContentPart[] = []
 
-  // 如果没有代码块，直接返回整个内容作为文本
-  if (!hasCodeBlocks.value) {
-    parts.push({
-      type: 'text',
-      content: renderMarkdown(content),
-    })
-    return parts
-  }
-
-  console.log('原始内容:', content)
-
-  // 更精确的代码块正则表达式，要求```必须在行首或前面只有空白字符
-  const codeBlockRegex = /(^|\n)```(\w*)\n?([\s\S]*?)\n?```(?=\n|$)/g
+  // 正则表达式查找所有代码块
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g
   let lastIndex = 0
   let match
 
-  // 重置正则表达式状态
-  codeBlockRegex.lastIndex = 0
-
   while ((match = codeBlockRegex.exec(content)) !== null) {
-    console.log('匹配到代码块:', {
-      fullMatch: match[0],
-      leadingChar: match[1],
-      language: match[2],
-      code: match[3],
-      startIndex: match.index,
-      endIndex: codeBlockRegex.lastIndex,
-    })
-
-    // 计算实际的代码块开始位置（跳过前导换行符）
-    const codeBlockStart = match.index + (match[1] === '\n' ? 1 : 0)
-
-    // 添加代码块之前的文本
-    if (codeBlockStart > lastIndex) {
-      const textContent = content.substring(lastIndex, codeBlockStart)
+    // a. 添加代码块之前的文本部分
+    if (match.index > lastIndex) {
+      const textContent = content.substring(lastIndex, match.index)
       if (textContent.trim()) {
-        console.log('添加文本部分:', textContent)
         parts.push({
           type: 'text',
-          content: renderMarkdown(textContent),
+          rawContent: textContent,
+          renderedContent: renderMarkdown(textContent),
         })
       }
     }
 
-    // 添加代码块
-    const language = match[2] || 'plaintext'
-    const code = match[3]
+    // b. 添加代码块或 Markdown 代码块部分
+    const language = match[1].toLowerCase() || 'plaintext'
+    const code = match[2].trim()
 
-    // 过滤掉整个内容都被当作markdown代码块的情况
-    if (language !== 'markdown' || code.length < content.length * 0.8) {
-      console.log('添加代码块:', { language, codeLength: code.length })
+    if (language === 'markdown') {
+      // 如果 AI 明确指定了 markdown 代码块，用特殊类型处理
+      parts.push({
+        type: 'markdown-code',
+        content: code,
+      })
+    } else if (code) {
+      // 否则，作为普通代码块处理
       parts.push({
         type: 'code',
         language: language,
         code: code,
       })
-    } else {
-      // 如果是markdown代码块且包含大部分内容，当作普通文本处理
-      console.log('将markdown代码块当作普通文本处理')
-      parts.push({
-        type: 'text',
-        content: renderMarkdown(code),
-      })
     }
-
-    lastIndex = codeBlockRegex.lastIndex
+    lastIndex = match.index + match[0].length
   }
 
-  // 添加剩余的文本
+  // c. 添加最后一个代码块之后的剩余文本
   if (lastIndex < content.length) {
     const textContent = content.substring(lastIndex)
     if (textContent.trim()) {
-      console.log('添加剩余文本部分:', textContent)
       parts.push({
         type: 'text',
-        content: renderMarkdown(textContent),
+        rawContent: textContent,
+        renderedContent: renderMarkdown(textContent),
       })
     }
   }
 
-  console.log('解析后的内容部分:', parts)
+  // 如果经过所有解析后，parts 数组依然为空，则当作纯文本处理
+  if (parts.length === 0 && content.trim()) {
+    parts.push({
+      type: 'text',
+      rawContent: content,
+      renderedContent: renderMarkdown(content),
+    })
+  }
+
   return parts
 })
 
-// 单纯的 markdown 渲染（当没有代码块时使用）
-const renderedContent = computed(() => {
-  if (isLoading.value || !debugMessage.value.content) return ''
-  return renderMarkdown(debugMessage.value.content)
-})
+// --- 5. 复制方法 ---
+const copyContent = (text: string, index: number) => {
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      copiedPartIndex.value = index
+      setTimeout(() => {
+        copiedPartIndex.value = null
+      }, 2000)
+    })
+    .catch((err) => {
+      console.error('复制失败:', err)
+    })
+}
 </script>
 
 <template>
@@ -164,37 +144,38 @@ const renderedContent = computed(() => {
       <span class="loading-text">正在思考...</span>
     </div>
 
-    <!-- 正常消息内容 -->
+    <!-- 正常消息内容 (统一渲染逻辑) -->
     <template v-else>
-      <!-- 处理真正的空消息情况 -->
-      <div v-if="!message.content || message.content.trim() === ''" class="empty-message">
-        <span class="text-gray-400 italic">消息内容为空</span>
+      <div
+        v-for="(part, index) in contentParts"
+        :key="`${message.id}-part-${index}`"
+        class="content-part"
+      >
+        <!-- 渲染普通文本部分 (没有外壳) -->
+        <div v-if="part.type === 'text'" class="text" v-html="part.renderedContent"></div>
+
+        <!-- 渲染代码块部分 -->
+        <CodeBlock v-else-if="part.type === 'code'" :code="part.code" :language="part.language" />
+
+        <!-- 渲染带外壳的 Markdown 部分 -->
+        <div v-else-if="part.type === 'markdown-code'" class="code-block markdown-block">
+          <div class="code-header">
+            <span class="language">MARKDOWN</span>
+            <button @click="copyContent(part.content, index)" class="copy-btn">
+              {{ copiedPartIndex === index ? '已复制' : '复制' }}
+            </button>
+          </div>
+          <div class="markdown-preview" v-html="renderMarkdown(part.content)"></div>
+        </div>
       </div>
 
-      <!-- 有内容的情况 -->
-      <template v-else>
-        <!-- 有代码块的复杂渲染 -->
-        <template v-if="hasCodeBlocks && contentParts.length > 0">
-          <div
-            v-for="(part, index) in contentParts"
-            :key="`${message.id}-part-${index}`"
-            class="content-part"
-          >
-            <!-- 普通文本部分 -->
-            <div v-if="part.type === 'text'" class="text" v-html="part.content"></div>
-
-            <!-- 代码块部分 -->
-            <CodeBlock
-              v-else-if="part.type === 'code'"
-              :code="part.code"
-              :language="part.language"
-            />
-          </div>
-        </template>
-
-        <!-- 无代码块的简单渲染 -->
-        <div v-else class="text" v-html="renderedContent"></div>
-      </template>
+      <!-- 空消息处理 -->
+      <div
+        v-if="!isLoading && (!message.content || message.content.trim() === '')"
+        class="empty-message"
+      >
+        <span class="text-gray-400 italic">(消息内容为空)</span>
+      </div>
     </template>
 
     <!-- 时间戳 -->
@@ -259,7 +240,7 @@ const renderedContent = computed(() => {
 
 .text {
   line-height: 1.6;
-  white-space: pre-wrap;
+  white-space: normal; /*避免保留原始换行符*/
   word-wrap: break-word;
 }
 
@@ -267,12 +248,51 @@ const renderedContent = computed(() => {
   margin: 0;
 }
 
+/* 相邻的 content-part 添加间距 */
 .content-part + .content-part {
-  margin-top: 0.5rem;
+  margin-top: 1.5em;
 }
 
-.empty-message {
-  padding: 8px 0;
+/* --- 代码块和 Markdown 块的统一样式 --- */
+.code-block {
+  margin: 0; /* 在 content-part 中控制外边距 */
+  border-radius: 6px;
+  overflow: hidden;
+  background-color: #f6f8fa;
+  border: 1px solid #e1e4e8;
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5em 1em;
+  background-color: #f1f1f1;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.language {
+  font-size: 0.85em;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.copy-btn {
+  border: none;
+  background-color: transparent;
+  color: #0366d6;
+  cursor: pointer;
+  font-size: 0.85em;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.copy-btn:hover {
+  background-color: #0366d61a;
+}
+
+/* Markdown 预览区的特殊样式 */
+.markdown-preview {
+  padding: 1em;
 }
 
 .timestamp {
@@ -283,40 +303,79 @@ const renderedContent = computed(() => {
 }
 
 /* deep 选择器用于修改 v-html 内部的样式 */
-.text :deep(p) {
-  margin: 0.5em 0;
+/* 1.移除所有块级元素的默认外边距 */
+.text :deep(p),
+.text :deep(ul),
+.text :deep(ol),
+.text :deep(h1),
+.text :deep(h2),
+.text :deep(h3),
+.text :deep(h4),
+.text :deep(h5),
+.text :deep(h6),
+.text :deep(blockquote),
+.text :deep(pre) {
+  margin: 0;
 }
 
-.text :deep(p:first-child) {
-  margin-top: 0;
+/* 2. 只在相邻的块级元素之间添加上外边距 */
+/* + 选择器（相邻兄弟选择器）只会选中紧跟在另一个块级元素后面的元素。*/
+.text :deep(p + p),
+.text :deep(ul + p),
+.text :deep(p + ul),
+.text :deep(ol + p),
+.text :deep(p + ol),
+.text :deep(h1 + p),
+.text :deep(h2 + p),
+.text :deep(h3 + p),
+.text :deep(p + h1),
+.text :deep(p + h2),
+.text :deep(p + h3),
+.text :deep(div + div),
+.text :deep(blockquote + p),
+.text :deep(p + blockquote) {
+  margin-top: 1em;
 }
 
-.text :deep(p:last-child) {
-  margin-bottom: 0;
-}
-
+/* 3. 列表处理：移除 ul/ol 的默认内边距 */
 .text :deep(ul),
 .text :deep(ol) {
-  padding-left: 1.5em;
-  margin: 0.5em 0;
+  padding-left: 1.5em; /* 保留列表的缩进 */
 }
 
-.text :deep(li) {
-  margin-bottom: 0.25em;
+/* 4. 标题的样式*/
+.text :deep(h1),
+.text :deep(h2),
+.text :deep(h3) {
+  font-weight: 600;
+  margin-bottom: 0.5em; /* 标题和下方内容之间的距离 */
+}
+.text :deep(h1) {
+  font-size: 1.5em;
+}
+.text :deep(h2) {
+  font-size: 1.25em;
+}
+.text :deep(h3) {
+  font-size: 1.1em;
 }
 
+/* 5. 其他元素的样式*/
 .text :deep(blockquote) {
   border-left: 3px solid #dfe2e5;
   padding-left: 1em;
   color: #6a737d;
-  margin: 0.5em 0;
+  margin-top: 1em; /* 确保引用块也有间距 */
+}
+
+.text :deep(hr) {
+  margin: 1.5em 0; /* 增加上下外边距，把它和文字推开 */
 }
 
 .text :deep(a) {
   color: #3b82f6;
   text-decoration: none;
 }
-
 .text :deep(a:hover) {
   text-decoration: underline;
 }
@@ -326,25 +385,6 @@ const renderedContent = computed(() => {
   border-radius: 3px;
   padding: 2px 4px;
   font-size: 0.875em;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-}
-
-.text :deep(h1),
-.text :deep(h2),
-.text :deep(h3),
-.text :deep(h4),
-.text :deep(h5),
-.text :deep(h6) {
-  margin: 1em 0 0.5em 0;
-  font-weight: 600;
-}
-
-.text :deep(h1:first-child),
-.text :deep(h2:first-child),
-.text :deep(h3:first-child),
-.text :deep(h4:first-child),
-.text :deep(h5:first-child),
-.text :deep(h6:first-child) {
-  margin-top: 0;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; /* 使用等宽字体 */
 }
 </style>

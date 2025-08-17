@@ -19,7 +19,7 @@ const { currentChat, isSending, fullMessages } = storeToRefs(chatStore)
 const userInput = ref('')
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const messageListRef = ref<HTMLDivElement | null>(null)
-const isSettingsOpen = ref(false) // 注意：这个在你的代码中没有被使用，可以考虑移除
+const isSettingsOpen = ref(false)
 
 // 监听路由变化，同步当前对话
 watch(
@@ -64,11 +64,7 @@ function adjustTextareaHeight(event: Event) {
 
 const sendMessage = async () => {
   //1.准备阶段
-  if (!currentChat.value) {
-    alert('错误：请先选择一个对话。')
-    return
-  }
-
+  if (!currentChat.value) return // 确保当前对话存在
   const content = userInput.value.trim()
   if (!content || isSending.value) return
 
@@ -124,17 +120,17 @@ const sendMessage = async () => {
     const reader = stream.getReader()
     const decoder = new TextDecoder()
     let accumulatedText = ''
-    let hasReceivedContent = false // 新增标志位，用于检查是否收到过有效内容
-    let buffer = '' // 【新增】用于缓存不完整的数据
+    let hasReceivedContent = false // 标志位，用于检查是否收到过有效内容
+    let buffer = '' // 用于缓存不完整的数据
 
     while (true) {
       const { value, done } = await reader.read()
       if (done) break // 当服务器关闭流时，退出循环
 
       const chunk = decoder.decode(value, { stream: true })
-      buffer += chunk // 【修复】将新数据添加到缓冲区
+      buffer += chunk // 将新数据添加到缓冲区
 
-      // 【修复】按双换行符分割完整的 SSE 事件
+      // 按双换行符分割完整的 SSE 事件
       const events = buffer.split('\n\n')
       // 保留最后一个可能不完整的事件
       buffer = events.pop() || ''
@@ -168,7 +164,7 @@ const sendMessage = async () => {
 
             let contentToAdd = ''
 
-            // 【修复】同时支持模拟模式和正式模式的数据格式
+            // 同时支持模拟模式和正式模式的数据格式
             if (currentEvent === 'conversation.message.delta') {
               // 正式模式：只处理 delta 事件中的 answer 类型消息
               if (
@@ -209,7 +205,7 @@ const sendMessage = async () => {
 
     // 在 while 循环之后，进行最终检查
     if (!hasReceivedContent) {
-      // 如果整个流都结束了，但我们一个有效的 answer 都没收到，
+      // 如果整个流都结束了，但没有一个有效的 answer
       // 这很可能是因为 API 直接返回了 failed 和 done 事件（比如余额不足时）
       // 此时我们抛出一个通用错误，让 catch 块来处理
       throw new Error('API 没有返回任何有效内容，请检查额度或联系支持。')
@@ -225,7 +221,6 @@ const sendMessage = async () => {
       chatStore.updateAssistantMessage(lastMsg.id, `抱歉，发生了一个错误：${errorMessage}`)
     }
   } finally {
-    // --- 阶段三：收尾 (完全保留你的逻辑) ---
     chatStore.isSending = false // 解禁UI
     inputRef.value?.focus()
   }

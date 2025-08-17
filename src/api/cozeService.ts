@@ -3,7 +3,7 @@ import type { ApiMessage } from '@/types'
 // 启用模拟模式，避免消耗真实API额度
 const IS_MOCK_MODE = false // 设置为 true 来测试UI功能
 
-// Coze API 请求体的"蓝图"
+// Coze API 请求体
 interface CozeChatPayload {
   bot_id: string
   user_id: string
@@ -15,13 +15,12 @@ interface CozeChatPayload {
  * @description 使用原生 fetch API 与 Coze 服务进行流式通信
  */
 export async function fetchCozeStream(
-  endpoint: string,
-  apiKey: string,
-  payload: CozeChatPayload,
+  endpoint: string, //API端点
+  apiKey: string, //密钥
+  payload: CozeChatPayload, //请求体
 ): Promise<ReadableStream | null> {
   // 如果开启了模拟模式，直接返回模拟数据流
   if (IS_MOCK_MODE) {
-    console.log('使用模拟模式，避免消耗API额度')
     return createMockStream()
   }
 
@@ -31,7 +30,7 @@ export async function fetchCozeStream(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`, //Token认证
         Accept: 'text/event-stream',
       },
       body: JSON.stringify(payload),
@@ -57,7 +56,7 @@ export async function fetchCozeStream(
   }
 }
 
-// 增强的模拟数据流，包含代码块和复杂内容
+// 模拟数据
 function createMockStream(): ReadableStream {
   const mockResponses = [
     '你好！我是智聊助手。让我为你演示一下我的功能。\n\n',
@@ -84,7 +83,7 @@ function createMockStream(): ReadableStream {
         if (index < mockResponses.length) {
           const chunk = mockResponses[index++]
 
-          // 【修复】正确转义 JSON 字符串，处理换行符和特殊字符
+          // 正确转义 JSON 字符串，处理换行符和特殊字符
           const escapedContent = chunk
             .replace(/\\/g, '\\\\') // 转义反斜杠
             .replace(/"/g, '\\"') // 转义双引号

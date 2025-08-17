@@ -77,6 +77,8 @@ export const useChatStore = defineStore('chat', () => {
         console.error('加载设置失败', e)
       }
     }
+    cleanupOldChats()
+    saveToLocalStorage() // 确保清理结果被保存
   }
 
   /**
@@ -105,6 +107,7 @@ export const useChatStore = defineStore('chat', () => {
    * @returns {string} 新创建对话的ID，方便路由进行跳转。
    */
   function createNewChat() {
+    cleanupOldChats()
     const now = new Date()
     const time = now.toTimeString().split(' ')[0].slice(0, 5) // 获取 "HH:mm"
     const newChat: Chat = {
@@ -245,6 +248,33 @@ export const useChatStore = defineStore('chat', () => {
   function updateSettings(newSettings: Partial<AppSettings>) {
     settings.value = { ...settings.value, ...newSettings }
     saveToLocalStorage()
+  }
+
+  //对话自动清理策略
+  /**
+   * @description 清理过期对话，删除超过30天未更新和超过100个对话的旧对话。
+   * 在 init 和 createNewChat 后被调用。
+   */
+  function cleanupOldChats() {
+    const MAX_CHAT_COUNT = 100
+    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000
+    const thirtyDaysAgo = Date.now() - thirtyDaysInMs
+
+    // 先按时间过滤
+    const originalCount = chatList.value.length
+    chatList.value = chatList.value.filter((chat) => chat.updatedAt > thirtyDaysAgo)
+
+    // 再按数量限制
+    if (chatList.value.length > MAX_CHAT_COUNT) {
+      chatList.value.sort((a, b) => a.updatedAt - b.updatedAt)
+      const countBasedDeleted = chatList.value.length - MAX_CHAT_COUNT
+      chatList.value.splice(0, countBasedDeleted)
+    }
+
+    //使用 originalCount 进行比较，判断是否需要保存
+    if (chatList.value.length !== originalCount) {
+      saveToLocalStorage()
+    }
   }
 
   return {

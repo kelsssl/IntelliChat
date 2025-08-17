@@ -94,13 +94,18 @@ const sendMessage = async () => {
     if (!assistantMessage) throw new Error('无法在UI上创建助手消息占位符')
 
     // 准备发送给 API 的数据
-    const messages: ApiMessage[] = fullMessages.value
-      .filter((msg): msg is typeof msg & { role: 'user' | 'assistant' } => msg.role !== 'system')
-      .map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-        content_type: 'text',
-      }))
+    const messagesForApi: ApiMessage[] = fullMessages.value.reduce((acc, msg) => {
+      // 只处理 role 合法的消息
+      if (msg.role === 'system' || msg.role === 'user' || msg.role === 'assistant') {
+        // 将内部 Message 类型映射为 API 需要的 ApiMessage 类型
+        acc.push({
+          role: msg.role,
+          content: msg.content,
+          content_type: 'text',
+        })
+      }
+      return acc
+    }, [] as ApiMessage[])
 
     // 发送网络请求：使用封装好的API 服务
     const stream = await fetchCozeStream(
@@ -109,7 +114,7 @@ const sendMessage = async () => {
       {
         bot_id: chatStore.settings.cozeBotId,
         user_id: 'user_12345',
-        additional_messages: messages,
+        additional_messages: messagesForApi,
         stream: true,
       },
     )

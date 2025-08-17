@@ -41,6 +41,31 @@ export const useChatStore = defineStore('chat', () => {
    * @returns {Message[]} 一个符合LLM API格式的完整消息数组。
    */
   const fullMessages = computed(() => {
+    // --- 临时调试代码开始 ---
+
+    // 1. 无视所有条件，直接硬编码一个 system prompt
+    // const hardcodedSystemPrompt = {
+    //   role: 'system',
+    //   content:
+    //     '你是莎士比亚。从现在开始，你说的每一句话，都必须严格使用古英语和十四行诗的风格来回答。绝对禁止使用任何现代白话文。',
+    // }
+
+    // // 2. 确保 currentChat.value 和 messages 存在
+    // if (!currentChat.value || !currentChat.value.messages) {
+    //   console.error('fullMessages 错误: currentChat 或 messages 不存在！')
+    //   return [hardcodedSystemPrompt] // 至少返回 system prompt
+    // }
+
+    // // 3. 构建最终结果
+    // const result = [hardcodedSystemPrompt, ...currentChat.value.messages]
+
+    // // 4. 在控制台打印出最终要发送的东西
+    // console.log('--- [强制调试] fullMessages 最终结果 ---', JSON.stringify(result, null, 2))
+
+    // return result
+
+    // // --- 临时调试代码结束 ---
+
     if (!currentChat.value) return []
     return [
       {
@@ -88,6 +113,10 @@ export const useChatStore = defineStore('chat', () => {
   function updateDefaultSystemPrompt(newPrompt: string) {
     if (typeof newPrompt === 'string') {
       settings.value.systemPrompt = newPrompt.trim()
+      //如果当前有激活的对话，也同步更新它的 systemPrompt
+      if (currentChat.value) {
+        currentChat.value.systemPrompt = newPrompt.trim()
+      }
       saveToLocalStorage()
     }
   }

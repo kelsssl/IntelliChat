@@ -31,7 +31,7 @@ export async function fetchCozeStream(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`, //Token认证
-        Accept: 'text/event-stream',
+        Accept: 'text/event-stream', // 指定返回格式为 SSE
       },
       body: JSON.stringify(payload),
     })

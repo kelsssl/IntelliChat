@@ -12,7 +12,7 @@ export interface Message {
 
 // 专门用于 API 请求的类型
 export interface ApiMessage {
-  role: 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant'
   content: string
   content_type: 'text'
 }
